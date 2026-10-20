@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>导出控件验收</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #ffffff; }
+  #result { position: fixed; left: 8px; bottom: 8px; margin: 0; font: 11px/1.4 monospace; white-space: pre; }
+</style>
+</head>
+<body>
+<pre id="result">running</pre>
+<script>
+  // 用内存存储替代 chrome.storage，其余行为与扩展内完全一致。
+  const store = {};
+  window.chrome = {
+    runtime: {
+      id: 'harness',
+      lastError: undefined,
+      getURL: (value) => `../${value}`,
+      sendMessage() {},
+      onMessage: { addListener() {}, removeListener() {} },
+    },
+    storage: {
+      local: {
+        get(keys, callback) {
+          const result = {};
+          for (const key of keys) if (key in store) result[key] = store[key];
+          callback(result);
+        },
+        set(items, callback) {
+          Object.assign(store, items);
+          if (callback) callback();
+        },
+      },
+      onChanged: { addListener() {}, removeListener() {} },
+    },
+  };
+</script>
+<script src="../content/core.js"></script>
+<script src="../content/ui.js"></script>
+<script>
+  const results = [];
+  function check(name, ok, detail) {
+    results.push(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`);
+  }
+
+  let exportCalls = 0;
+  let lastTier = '';
+
+  function makeControl(hostId, left) {
+    return ChatExportKit.createControl({
+      hostId,
+      iconHtml: '<img src="../icons/icon32.png" alt="">',
+      exportLabel: '导出 Markdown',
+      arrowLabel: '导出档位',
+      theme: ChatExportKit.pageTheme,
+      visible: () => true,
+      size: () => 34,
+      place: ({ host, totalWidth }) => {
+        host.style.top = '52px';
+        host.style.left = `${left(totalWidth)}px`;
+        host.style.right = 'auto';
+      },
+      onExport: async ({ tier }) => {
+        exportCalls++;
+        lastTier = tier;
+        return { tierLabel: ChatExportKit.tierLabel(tier) };
+      },
+    });
+  }
+
+  // 靠近右边缘（正常站点位置）
+  const control = makeControl('harness-host', (width) => Math.max(8, innerWidth - width - 24));
+  // 贴近左边缘（验证浮层自动内收）
+  const edge = makeControl('harness-host-2', () => 4);
+
+  const shadow = control.host.shadowRoot;
+  const pop = shadow.querySelector('.pop');
+  const arrow = shadow.querySelector('.arrow');
+  const exportButton = shadow.querySelector('.export');
+  const slider = shadow.querySelector('.slider');
+  const chev = shadow.querySelector('.chev');
+
+  /* ---------------------------------------------------------- 结构检查 */
+  check('只有一个导出按钮', shadow.querySelectorAll('.export').length === 1);
+  check('只有一个展开箭头', shadow.querySelectorAll('.arrow').length === 1);
+  check('浮层默认关闭', pop.hidden === true);
+  check('默认档位为完整', slider.getAttribute('aria-valuetext') === '完整', slider.getAttribute('aria-valuetext'));
+  check('档位按钮带 chevron', Boolean(chev));
+  check('滑钮有三个定位点', shadow.querySelectorAll('.dot').length === 3);
+
+  const shadowText = shadow.innerHTML;
+  const forbidden = ['导出详细程度', '当前档位', 'Markdown 格式', '保存', '提示', '说明', '帮助', '导出设置', '推荐默认'];
+  const hit = forbidden.filter((word) => shadowText.includes(word));
+  check('控件内没有说明性文字', hit.length === 0, hit.join('/'));
+
+  /* ------------------------------------------------------------ 展开 */
+  arrow.click();
+  check('点击箭头展开浮层', pop.hidden === false);
+  check('箭头 aria-expanded=true', arrow.getAttribute('aria-expanded') === 'true');
+
+  const btnRect = exportButton.getBoundingClientRect();
+  const popRect = pop.getBoundingClientRect();
+  check('浮层不遮挡导出按钮', popRect.top >= btnRect.bottom - 1 || popRect.bottom <= btnRect.top + 1);
+  check('浮层在窗口内（右边界）', popRect.left >= 7 && popRect.right <= innerWidth - 7,
+    `${Math.round(popRect.left)}..${Math.round(popRect.right)} / ${innerWidth}`);
+
+  /* ------------------------------------------------------------ 滑钮 */
+  const rect = slider.getBoundingClientRect();
+  function pointerAt(clientX) {
+    slider.setPointerCapture = () => {};
+    slider.releasePointerCapture = () => {};
+    slider.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX, clientY: rect.top + rect.height / 2, bubbles: true, composed: true, pointerId: 1,
+    }));
+    slider.dispatchEvent(new PointerEvent('pointerup', {
+      clientX, clientY: rect.top + rect.height / 2, bubbles: true, composed: true, pointerId: 1,
+    }));
+  }
+
+  pointerAt(rect.right - 2);
+  check('点击轨道右端切换到详尽', slider.getAttribute('aria-valuetext') === '详尽', slider.getAttribute('aria-valuetext'));
+  check('最右端蓝色填充覆盖全轨道', Math.abs(parseFloat(slider.style.getPropertyValue('--fill')) - 100) < 0.01);
+  check('切档后写入本地存储', store.exportTier === 'detailed', String(store.exportTier));
+  check('切档不会自动导出', exportCalls === 0, String(exportCalls));
+
+  pointerAt(rect.left + 2);
+  check('点击轨道左端切换到极简', slider.getAttribute('aria-valuetext') === '极简', slider.getAttribute('aria-valuetext'));
+  check('最左端没有蓝色填充', parseFloat(slider.style.getPropertyValue('--fill')) === 0);
+
+  slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, composed: true }));
+  check('键盘右移切换到完整', slider.getAttribute('aria-valuetext') === '完整', slider.getAttribute('aria-valuetext'));
+
+  /* -------------------------------------------------------- 关闭行为 */
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  check('Escape 关闭浮层', pop.hidden === true);
+
+  arrow.click();
+  check('再次点击箭头重新展开', pop.hidden === false);
+  document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+  check('点击浮层外部关闭', pop.hidden === true);
+
+  arrow.click();
+  arrow.click();
+  check('箭头可以切换关闭', pop.hidden === true);
+
+  /* ---------------------------------------------- 贴近左边缘时自动内收 */
+  const edgePop = edge.host.shadowRoot.querySelector('.pop');
+  edge.open();
+  const edgeRect = edgePop.getBoundingClientRect();
+  check('浮层贴近左边缘时内收', edgeRect.left >= 7, `${Math.round(edgeRect.left)}`);
+  check('内收后仍在窗口内', edgeRect.right <= innerWidth - 7);
+  edge.close();
+
+  /* ------------------------------------------------------------ 导出 */
+  exportButton.click();
+  check('点击图标立即导出', exportCalls === 1, String(exportCalls));
+  check('导出使用当前档位', lastTier === 'complete' || lastTier === 'full' || lastTier === 'minimal', lastTier);
+
+  /* ------------------------------------------------------ 暗色适配 */
+  document.body.style.background = '#111111';
+  control.layout();
+  check('暗色页面自动切换主题', control.host.dataset.theme === 'dark', String(control.host.dataset.theme));
+  control.open();
+  const popBackground = getComputedStyle(pop).backgroundColor;
+  check('暗色主题浮层使用深色底', popBackground === 'rgb(43, 44, 49)', popBackground);
+  control.close();
+
+  /* 连续拖动：移动时不保存档位，松手吸附最近节点。 */
+  document.body.style.background = '#ffffff';
+  control.layout();
+  control.open();
+  slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+  const dragRect = slider.getBoundingClientRect();
+  const xAt = (p) => dragRect.left + 16 + (dragRect.width - 32) * p;
+  const yAt = dragRect.top + dragRect.height / 2;
+  const pointer = (type, x, pointerId = 8) => {
+    slider.setPointerCapture = () => {};
+    slider.releasePointerCapture = () => {};
+    slider.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, composed: true, pointerId, clientX: x, clientY: yAt,
+    }));
+  };
+  pointer('pointerdown', xAt(0));
+  pointer('pointermove', xAt(.38));
+  const currentX = parseFloat(slider.style.getPropertyValue('--thumb-x'));
+  check('拖动时滑块连续跟手', Math.abs(currentX - (16 + (dragRect.width - 32) * .38)) < 1);
+  check('拖动过程中不写入新档位', slider.getAttribute('aria-valuetext') === '极简');
+  pointer('pointerup', xAt(.38));
+  check('松手吸附到最近的完整档位', slider.getAttribute('aria-valuetext') === '完整');
+
+  pointer('pointerdown', xAt(.5), 9);
+  pointer('pointermove', xAt(.74), 9);
+  pointer('pointerup', xAt(.74), 9);
+  check('第二个中点之前仍吸附完整', slider.getAttribute('aria-valuetext') === '完整');
+
+  pointer('pointerdown', xAt(.5), 10);
+  pointer('pointermove', xAt(.76), 10);
+  pointer('pointerup', xAt(.76), 10);
+  check('第二个中点之后吸附详尽', slider.getAttribute('aria-valuetext') === '详尽');
+  control.close();
+  edge.destroy();
+
+  document.getElementById('result').textContent = results.join('\n');
+  document.title = results.some((line) => line.startsWith('FAIL')) ? 'FAIL' : 'PASS';
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "ai-chat-exporter",
+  "version": "2.2.0",
+  "private": true,
+  "description": "Export conversations from AI chat websites to Markdown",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
