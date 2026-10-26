@@ -250,7 +250,7 @@
     }
 
     function layout() {
-      if (destroyed || !host.isConnected) return;
+      if (destroyed) return;
       const size = clamp(Number(config.size?.() ?? 34) || 34, 28, 44);
       host.style.setProperty('--btn', `${size}px`);
       const theme = config.theme?.();

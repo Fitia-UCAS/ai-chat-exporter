@@ -173,6 +173,7 @@ async function main() {
   assert.match(css, /border-radius:\s*999px/);
   assert.match(css, /prefers-reduced-motion/);
   assert.match(css, /\.pop\[hidden\]\s*\{\s*display:\s*none/);
+  assert.match(css, /pointer-events:\s*auto/);
   console.log('UI interaction tests passed');
 }
 

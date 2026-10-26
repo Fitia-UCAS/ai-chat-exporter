@@ -26,6 +26,17 @@
     return (matching.length ? matching : controls).sort(compare)[0] || null;
   }
 
+  function toolbarRowStart(controls, anchor) {
+    const anchorCenter = anchor.rect.top + anchor.rect.height / 2;
+    const sameRow = controls.filter(({ rect }) => {
+      const center = rect.top + rect.height / 2;
+      return Math.abs(center - anchorCenter) <= Math.max(8, anchor.rect.height * 0.45)
+        && rect.width <= 180
+        && rect.height <= Math.max(56, anchor.rect.height * 1.6);
+    });
+    return Math.min(anchor.rect.left, ...sameRow.map(({ rect }) => rect.left));
+  }
+
   const configBySite = {
     chatgpt: {
       hostId: '__chatgpt_export_button__',
@@ -37,7 +48,11 @@
         const selected = findControl(controls, /分享|share/i,
           (a, b) => a.rect.top - b.rect.top || b.rect.right - a.rect.right);
         if (!selected) return null;
-        return { rect: selected.rect, size: clamp(Math.round(selected.rect.height) || 34, 32, 40) };
+        return {
+          rect: selected.rect,
+          align: toolbarRowStart(controls, selected),
+          size: clamp(Math.round(selected.rect.height) || 34, 32, 40),
+        };
       },
     },
     gemini: {
@@ -69,7 +84,11 @@
         const selected = findControl(controls, /分享|share/i,
           (a, b) => b.rect.right - a.rect.right || a.rect.top - b.rect.top);
         if (!selected) return null;
-        return { rect: selected.rect, size: clamp(Math.round(selected.rect.height) || 32, 32, 40) };
+        return {
+          rect: selected.rect,
+          align: toolbarRowStart(controls, selected),
+          size: clamp(Math.round(selected.rect.height) || 32, 32, 40),
+        };
       },
     },
   };
@@ -92,8 +111,10 @@
       return geometry?.size || 34;
     },
     place: ({ host, size, totalWidth }) => {
+      if (host.parentElement !== document.body) document.body.append(host);
       if (!geometry) {
         Object.assign(host.style, {
+          position: 'fixed',
           top: `${config.fallback.top}px`,
           left: 'auto',
           right: `${config.fallback.right}px`,
@@ -101,6 +122,7 @@
         return;
       }
       Object.assign(host.style, {
+        position: 'fixed',
         top: `${Math.round(geometry.rect.top + (geometry.rect.height - size) / 2)}px`,
         left: `${Math.max(8, Math.round((geometry.align ?? geometry.rect.left) - totalWidth - 8))}px`,
         right: 'auto',

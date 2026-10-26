@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Chat Exporter",
-  "version": "2.2.0",
+  "version": "2.2.2",
   "description": "在 ChatGPT / Gemini / DeepSeek 一键导出当前对话为 Markdown（极简 / 完整 / 详尽）",
   "permissions": [
     "downloads",
